@@ -1,0 +1,201 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8c1d982c-56b3-4a25-b24a-1727cd7f4e05",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/files/*.pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "bc861b73-13d9-4c8a-adb8-18919e4bbfca",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ocr:8000/ocr?include_images=true&dpi=350&start_page=4&max_pages=3",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "a5de40a4-a4eb-4fe4-932c-325f272bc5d4",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Adjust this if your voter data starts later/earlier\nconst START_PAGE = 4;\n\nconst input = items[0].json;          // OCR response\nconst pages = input.pages || [];      // your OCR returns { pages: [...] }\n\n// Optional: infer gender from filename if you have it in json somewhere\nconst sourcePdf =\n  input.source_pdf ||\n  input.filename ||\n  input.file ||\n  \"unknown.pdf\";\n\nlet gender = \"\";\nconst lower = sourcePdf.toLowerCase();\nif (lower.includes(\"_male_\")) gender = \"male\";\nelse if (lower.includes(\"_female_\")) gender = \"female\";\nelse if (lower.includes(\"_hijra_\")) gender = \"hijra\";\n\nconst out = pages\n  .filter(p => (p.page || 0) >= START_PAGE)\n  // only keep pages that look like they contain records\n  .filter(p => (p.text || \"\").includes(\"ভোটার নং\") || (p.text || \"\").includes(\"নাম:\"))\n  .map(p => ({\n    json: {\n      source_pdf: sourcePdf,\n      gender,\n      page: p.page,\n      text: p.text || \"\",\n      image_b64_jpeg: p.image_b64_jpeg || \"\"  // needed for vision LLM\n    }\n  }));\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "8b98a306-c634-499f-ae92-e467dcc59077",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{$json.model}}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{$json.temperature}}"
+            },
+            {
+              "name": "max_completion_tokens",
+              "value": "={{ $json.max_completion_tokens }}"
+            },
+            {
+              "name": "response_format",
+              "value": "={{ $json.response_format }}"
+            },
+            {
+              "name": "messages",
+              "value": "={{ $json.messages }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "931a335b-9891-4a95-8576-4c316de9b36a",
+      "name": "HTTP Request1",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "srqdZw3f3HJqivvm",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const payload = {\n  model: \"meta-llama/llama-4-scout-17b-16e-instruct\",\n  temperature: 1,\n  max_completion_tokens: 4096,\n  response_format: { type: \"json_object\" },\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are a strict data-extraction engine. Output ONLY valid JSON.\"\n    },\n    {\n      role: \"user\",\n      content: [\n        {\n          type: \"text\",\n          text:\n            \"Task: Extract voter records from this Bangladesh voter list page.\\n\\n\" +\n            \"Rules:\\n\" +\n            \"- Ignore headers/top area.\\n\" +\n            \"- Each record starts like: '০০১৬. নাম:'\\n\" +\n            \"- Return ONLY JSON in this exact shape:\\n\" +\n            \"{ \\\"records\\\": [ { \\\"serial_no\\\":\\\"\\\", \\\"name\\\":\\\"\\\", \\\"voter_no\\\":\\\"\\\", \\\"husband_or_father_name\\\":\\\"\\\", \\\"mother_name\\\":\\\"\\\", \\\"occupation\\\":\\\"\\\", \\\"dob\\\":\\\"\\\", \\\"house_name\\\":\\\"\\\", \\\"address\\\":\\\"\\\", \\\"gender\\\":\\\"\\\" } ] }\\n\\n\" +\n            \"Notes:\\n\" +\n            \"- Use the IMAGE to fix broken Bangla OCR.\\n\" +\n            \"- voter_no digits only.\\n\" +\n            \"- husband_or_father_name from পিতা/স্বামী, mother_name from মাতা.\\n\\n\" +\n            `Context: gender hint=${$json.gender || \"\"}, page=${$json.page || \"\"}\\n\\n` +\n            \"OCR TEXT:\\n\" + ($json.text || \"\")\n        },\n        {\n          type: \"image_url\",\n          image_url: {\n            url: \"data:image/jpeg;base64,\" + ($json.image_b64_jpeg || \"\")\n          }\n        }\n      ]\n    }\n  ]\n};\n\n// IMPORTANT: in \"Run once for each item\", return ONE item (not array)\nreturn { json: payload };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "8e69be4b-fded-411a-8921-c3e9c2ef679d",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "347b65c9-716e-4a0c-9c56-a5dc0a01a502",
+  "meta": {
+    "instanceId": "f3984159d09f9b54457731bd519c8014d8c3849234f027baed8eae3647963ee7"
+  },
+  "id": "nrEatqszUEiDzCrciUTyT",
+  "tags": []
+}
