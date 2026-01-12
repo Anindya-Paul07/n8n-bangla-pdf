@@ -1,0 +1,37 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_RESTRICT_FILE_ACCESS_TO: "/files;/home/node/.n8n-files"
+      N8N_PORT: ${N8N_PORT}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
+      TZ: ${TZ}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./files:/files:ro
+    depends_on:
+      - voterdb
+      - ocr
+
+  ocr:
+    build: ./ocr
+    ports:
+      - "8000:8000"
+
+  voterdb:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${VOTER_PG_USER}
+      POSTGRES_PASSWORD: ${VOTER_PG_PASS}
+      POSTGRES_DB: ${VOTER_PG_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - voterdb_data:/var/lib/postgresql/data
+
+volumes:
+  n8n_data:
+  voterdb_data:
