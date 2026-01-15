@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 
 # ================= USER CONFIGURATION =================
-PDF_PATH = "../files/150396_com_3448_male_without_photo_193_2025-11-24.pdf" 
+PDF_PATH = "../files/new/150459_com_7_hijra_without_photo_1_2025-11-24.pdf" 
 OUTPUT_DIR = "final_verification_crops"
 DPI = 400
 
@@ -55,7 +55,7 @@ def run_test():
     
     # Test Page 3 (Start Page) and Page 4 (Standard)
     # 0-indexed: Page 3 is index 2, Page 4 is index 3
-    test_indices = [2, 3] 
+    test_indices = [3, 4] 
     
     for pno in test_indices: 
         if pno >= doc.page_count: continue

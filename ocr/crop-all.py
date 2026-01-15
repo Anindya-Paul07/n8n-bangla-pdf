@@ -4,7 +4,7 @@ import os
 import shutil
 
 # ================= CONFIGURATION =================
-PDF_PATH = "../files/150396_com_3448_male_without_photo_193_2025-11-24.pdf" 
+PDF_PATH = "../files/150459_com_5458_male_without_photo_307_2025-11-24.pdf" 
 OUTPUT_BASE_DIR = "full_extraction_dump"
 DPI = 400
 

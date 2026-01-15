@@ -1,11 +1,13 @@
 import os
 import base64
+import io
+from typing import Any, Dict, List, Optional
 import fitz  # PyMuPDF
 from PIL import Image
-from io import BytesIO
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-app = FastAPI(title="Voter Cropper API")
+app = FastAPI(title="Bangla PDF Renderer for GCV")
 
 # COORDINATES
 DPI = 600
@@ -18,59 +20,82 @@ START_ROWS = [634, 1085, 1535, 1985, 2435]
 UPLOAD_DIR = "/app/output"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-def _pil_to_base64(pil_img):
-    buff = BytesIO()
-    pil_img.save(buff, format="JPEG")
-    return base64.b64encode(buff.getvalue()).decode("utf-8")
-
-@app.post("/upload_pdf_path")
-async def upload_pdf_path(filename: str = Form(...)):
-    """Reads file directly from the shared volume"""
-    # Look for the file in the shared folder mapped to /app/output
-    file_path = os.path.join(UPLOAD_DIR, filename)
+def _jpeg_b64_high_quality(pil_img: Image.Image) -> str:
+    """
+    Convert image to Base64 for Google Cloud Vision.
+    No aggressive downscaling needed (GCV supports up to 10MB).
+    """
+    img = pil_img.copy()
     
-    if not os.path.exists(file_path):
-        return {"error": f"File not found at {file_path}. Did you save it to ./files first?"}
-    
-    doc = fitz.open(file_path)
-    # Save a reference copy as 'current_voter_list.pdf' for the cropper to use later
-    doc.save(os.path.join(UPLOAD_DIR, "current_voter_list.pdf"))
-    
-    return {"status": "success", "total_pages": doc.page_count, "filename": filename}
+    # Optional: Resize only if HUGE (e.g. > 4000px) to save bandwidth
+    if img.width > 4000:
+        ratio = 4000 / img.width
+        img = img.resize((int(img.width * ratio), int(img.height * ratio)))
 
-@app.get("/get_page_crops/{page_num}")
-async def get_page_crops(page_num: int):
-    """Returns 18 base64 images for a specific page"""
-    file_path = os.path.join(UPLOAD_DIR, "current_voter_list.pdf")
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="No PDF uploaded yet")
+    buf = io.BytesIO()
+    # High quality for better OCR
+    img.save(buf, format="JPEG", quality=85, optimize=True)
+    b = buf.getvalue()
+    return base64.b64encode(b).decode("utf-8")
 
-    doc = fitz.open(file_path)
-    if page_num < 1 or page_num > doc.page_count:
-        raise HTTPException(status_code=400, detail="Page number out of range")
+async def _read_pdf_bytes_from_request(request: Request) -> bytes:
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ctype:
+        form = await request.form()
+        for _, v in form.items():
+            if hasattr(v, "read"):
+                return await v.read()
+        raise ValueError("No file found in multipart form")
+    return await request.body()
 
-    # 0-index adjustment
-    pno = page_num - 1
-    
-    # Skip covers
-    if pno < 2:
-        return {"page": page_num, "crops": []}
+# ---------- endpoint ----------
 
-    cols, rows = (START_COLS, START_ROWS) if pno == 2 else (STD_COLS, STD_ROWS)
-    
-    page = doc.load_page(pno)
-    pix = page.get_pixmap(dpi=DPI, alpha=False)
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+@app.get("/health")
+def health():
+    return {"ok": True}
 
-    crops_data = []
-    box_id = 1
-    for y in rows:
-        for x in cols:
-            crop = img.crop((x, y, x + BOX_W, y + BOX_H))
-            crops_data.append({
-                "box_id": box_id,
-                "image_b64": _pil_to_base64(crop)
-            })
-            box_id += 1
+@app.post("/render-pages")  # Renamed for clarity
+async def render_pages_endpoint(
+    request: Request,
+    dpi: int = 300,        # Standard for OCR
+    start_page: int = 1,
+    max_pages: int = 0,    # 0 = all
+):
+    try:
+        pdf_bytes = await _read_pdf_bytes_from_request(request)
+        if not pdf_bytes:
+            return JSONResponse({"error": "Empty PDF body"}, status_code=400)
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total_pages = doc.page_count
+
+        s = max(1, start_page)
+        e = total_pages if max_pages in (0, None) else min(total_pages, s - 1 + int(max_pages))
+
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+
+        pages_out: List[Dict[str, Any]] = []
+        for pno in range(s - 1, e):
+            page = doc.load_page(pno)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            pil_img = _pil_from_pixmap(pix)
             
-    return {"page": page_num, "crops": crops_data}
+            # No OCR here! Just image generation.
+            image_b64 = _jpeg_b64_high_quality(pil_img)
+
+            pages_out.append({
+                "page": pno + 1,
+                "image_b64_jpeg": image_b64
+            })
+
+        return {
+            "meta": {
+                "total_pages": total_pages,
+                "processed_count": len(pages_out)
+            },
+            "pages": pages_out,
+        }
+
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
