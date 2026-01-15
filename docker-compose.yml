@@ -4,14 +4,13 @@ services:
     ports:
       - "5678:5678"
     environment:
-      N8N_RESTRICT_FILE_ACCESS_TO: "/files;/home/node/.n8n-files"
-      N8N_PORT: ${N8N_PORT}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
-      TZ: ${TZ}
+      - N8N_RESTRICT_FILE_ACCESS_TO=/files;/home/node/.n8n-files
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=Asia/Dhaka
+      - TZ=Asia/Dhaka
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./files:/files:ro
+      - ./files:/files
     depends_on:
       - voterdb
       - ocr
@@ -20,13 +19,16 @@ services:
     build: ./ocr
     ports:
       - "8000:8000"
+    volumes:
+      - ./files:/app/output
 
   voterdb:
     image: postgres:16
+    restart: always
     environment:
-      POSTGRES_USER: ${VOTER_PG_USER}
-      POSTGRES_PASSWORD: ${VOTER_PG_PASS}
-      POSTGRES_DB: ${VOTER_PG_DB}
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: n8npassword
+      POSTGRES_DB: voter_data
     ports:
       - "5432:5432"
     volumes:
