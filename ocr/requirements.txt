@@ -1,7 +1,10 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pymupdf==1.24.14
-pytesseract==0.3.13
-pillow==11.0.0
-opencv-python-headless==4.10.0.84
-numpy==2.1.3
+fastapi
+uvicorn
+pymupdf
+opencv-python-headless
+numpy
+pillow
+python-multipart
+requests
+pandas
+openpyxl

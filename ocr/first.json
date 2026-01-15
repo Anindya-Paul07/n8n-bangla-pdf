@@ -1,0 +1,67 @@
+{
+  "name": "1. PDF Uploader (Ingest)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "upload-voter-list",
+        "options": {}
+      },
+      "id": "trigger-node",
+      "name": "On Form Submission",
+      "type": "n8n-nodes-base.n8nFormTrigger",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ],
+      "webhookId": "voter-upload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ocr:8000/process-pdf",
+        "sendBinaryData": true,
+        "binaryPropertyName": "file",
+        "options": {}
+      },
+      "id": "http-python",
+      "name": "Send to Python Stitcher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Step 1: Upload PDF\nUse the 'Test URL' or 'Production URL' of the Form Trigger to upload your PDF.\n\nThis sends the file to Python, which:\n1. Crops & Stitches images\n2. Pushes them to Redis"
+      },
+      "id": "note-1",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        380,
+        140
+      ],
+      "typeOptions": {
+        "theme": "yellow"
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On Form Submission": {
+      "main": [
+        [
+          {
+            "node": "Send to Python Stitcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
