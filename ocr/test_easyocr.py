@@ -4,18 +4,15 @@ import pandas as pd
 import easyocr
 import glob
 import logging
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ================= CONFIGURATION =================
-CROPS_FOLDER = "full_extraction_dump" 
+CROPS_FOLDER = "full_extraction_dump"
 OUTPUT_FILE = "Final_Voter_List_EasyOCR.xlsx"
-USE_GPU = False # Set True if you have an NVIDIA GPU
+RAW_CSV_FILE = "raw_ocr_output.csv"
+USE_GPU = False  # Set True if you have an NVIDIA GPU
 # =================================================
-
-# Initialize EasyOCR Reader for Bengali ('bn') and English ('en')
-# English is added because numbers (150...) often appear in English
-print("⏳ Loading EasyOCR Model...")
-reader = easyocr.Reader(['bn', 'en'], gpu=USE_GPU, verbose=False)
-print("✅ Model Loaded!")
 
 def to_bengali_digits(text):
     if not isinstance(text, str): return ""
@@ -58,7 +55,7 @@ def parse_bengali_row(text):
         data["Name"] = name_match.group(1).strip()
 
     # 3. VOTER NO (From 'ভোটার নং' to 'পিতা' OR 'স্বামী')
-    voter_match = re.search(r'ভোটার\s*নং\s*[:;]?\s*([0-9০-৯]+)', text)
+    voter_match = re.search(r'ভোটার\s*[:;]?\s*(?:নং)?\s*[:;]?\s*([0-9০-৯]+)', text)
     if voter_match:
         data["Voter No"] = to_bengali_digits(voter_match.group(1))
 
@@ -91,63 +88,110 @@ def parse_bengali_row(text):
 
     return data
 
+# --- WORKER FUNCTION ---
+def process_batch(image_files_batch):
+    """
+    Worker process to handle a batch of images.
+    Initializes its own EasyOCR Reader to avoid pickling issues.
+    """
+    # Initialize reader inside the process
+    # Using 'en' and 'bn' as before.
+    # gpu=USE_GPU (False for CPU optimization)
+    reader = easyocr.Reader(['bn', 'en'], gpu=USE_GPU, verbose=False)
+    
+    results = []
+    
+    for img_path in image_files_batch:
+        try:
+            # Extract basic info from path
+            parts = img_path.split(os.sep)
+            # Safe extraction of Page/Box numbers
+            try:
+                p_val = re.search(r'(\d+)', parts[-2]).group(1)
+                b_val = re.search(r'(\d+)', parts[-1]).group(1)
+            except:
+                p_val, b_val = 0, 0
+                
+            # Perform OCR
+            # detail=0 returns simple extracted text list
+            # paragraph=True helps combine lines
+            ocr_text_list = reader.readtext(img_path, detail=0, paragraph=True)
+            
+            raw_text = clean_ocr_text(ocr_text_list)
+            
+            results.append({
+                "Page Name": f"Page_{int(p_val):03d}",
+                "Box Name": f"Box_{int(b_val):02d}.jpg",
+                "Raw Text": raw_text
+            })
+            
+        except Exception as e:
+            # Log error but don't crash
+            # simplified printing for worker
+            results.append({
+                "Page Name": f"Page_{int(p_val):03d}", # Fallback
+                "Box Name": os.path.basename(img_path),
+                "Raw Text": f"ERROR: {str(e)}"
+            })
+            
+    return results
+
 def main():
     if not os.path.exists(CROPS_FOLDER):
         print(f"Error: {CROPS_FOLDER} not found!")
         return
 
-    print("🚀 Starting EasyOCR Extraction...")
-    raw_data_list = []
+    print("🚀 Starting EasyOCR Extraction (Multiprocessing Optimized)...")
     
-    # Recursive search for images
+    # 1. Collect Images
     image_files = sorted(glob.glob(os.path.join(CROPS_FOLDER, "**", "*.*"), recursive=True))
     image_files = [f for f in image_files if f.lower().endswith(('.jpg', '.png'))]
     
     total = len(image_files)
+    if total == 0:
+        print("No images found.")
+        return
+        
     print(f"Found {total} images.")
 
-    for i, img_path in enumerate(image_files):
-        try:
-            parts = img_path.split(os.sep)
-            p_val = re.search(r'(\d+)', parts[-2]).group(1)
-            b_val = re.search(r'(\d+)', parts[-1]).group(1)
-        except:
-            p_val, b_val = 0, 0
-
-        print(f"[{i+1}/{total}] Processing Page {p_val} Box {b_val}...", end=" ", flush=True)
-
-        try:
-            # --- RUN EASYOCR ---
-            # detail=0 returns only the text list, no bounding boxes
-            result_list = reader.readtext(img_path, detail=0, paragraph=True)
-            
-            if result_list:
-                raw_text = clean_ocr_text(result_list)
+    # 2. Determine CPU Cores and Batches
+    num_workers = max(1, os.cpu_count() - 1)  # Leave one core for system/main
+    # Alternatively, use all cores provided enough RAM:
+    # num_workers = os.cpu_count()
+    
+    print(f"🔥 Using {num_workers} parallel workers on CPU.")
+    
+    # Split files into chunks for workers
+    chunk_size = (total + num_workers - 1) // num_workers
+    batches = [image_files[i:i + chunk_size] for i in range(0, total, chunk_size)]
+    
+    raw_data_list = []
+    
+    # 3. Run Multiprocessing
+    print("⏳ Processing... (This might take a while, but it's parallelized!)")
+    
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        # Submit tasks
+        futures = [executor.submit(process_batch, batch) for batch in batches]
+        
+        # Gather results as they complete
+        completed_count = 0
+        for future in as_completed(futures):
+            try:
+                batch_results = future.result()
+                raw_data_list.extend(batch_results)
                 
-                raw_data_list.append({
-                    "Page Name": f"Page_{int(p_val):03d}",
-                    "Box Name": f"Box_{int(b_val):02d}.jpg",
-                    "Raw Text": raw_text
-                })
-                print("✅")
-            else:
-                print("❌ Empty")
-                raw_data_list.append({
-                    "Page Name": f"Page_{int(p_val):03d}",
-                    "Box Name": f"Box_{int(b_val):02d}.jpg",
-                    "Raw Text": ""
-                })
+                completed_count += len(batch_results)
+                print(f"✅ Progress: {completed_count}/{total} images processed.")
+            except Exception as e:
+                print(f"❌ Worker Error: {e}")
 
-        except Exception as e:
-            print(f"❌ Error: {e}")
-
-    # 1. Save RAW Data to CSV
-    RAW_CSV = "raw_ocr_output.csv"
-    print(f"\n💾 Saving Raw Text to {RAW_CSV}...")
+    # 4. Save RAW Data to CSV
+    print(f"\n💾 Saving Raw Text to {RAW_CSV_FILE}...")
     df_raw = pd.DataFrame(raw_data_list)
-    df_raw.to_csv(RAW_CSV, index=False, encoding="utf-8-sig")
+    df_raw.to_csv(RAW_CSV_FILE, index=False, encoding="utf-8-sig")
 
-    # 2. Parse Data from CSV
+    # 5. Parse Data from CSV
     print("🔄 Parsing Raw Text...")
     final_data_list = []
     
@@ -162,7 +206,7 @@ def main():
         
         final_data_list.append(parsed_row)
 
-    # 3. Save Final Excel
+    # 6. Save Final Excel
     df_final = pd.DataFrame(final_data_list)
     
     # Ensure columns exist
@@ -177,4 +221,6 @@ def main():
     print(f"🎉 DONE! Saved to {OUTPUT_FILE}")
 
 if __name__ == "__main__":
+    # Required for Windows multiprocessing
+    multiprocessing.freeze_support()
     main()
