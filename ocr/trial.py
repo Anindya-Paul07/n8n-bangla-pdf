@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 # ================= CONFIGURATION =================
-PDF_PATH = "../files/150459_com_5458_male_without_photo_307_2025-11-24.pdf"   # <--- RENAME THIS
+PDF_PATH = "../files/150397_com_2833_male_without_photo_160_2025-11-24.pdf"   # <--- RENAME THIS
 PAGE_NO = 4                       # Page to test
 DPI = 400
 SHIFT_AMOUNT = 30                 # How many pixels to shift for testing
