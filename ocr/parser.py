@@ -3,7 +3,7 @@ import re
 import os
 
 # ================= CONFIGURATION =================
-INPUT_FILE = "extraction_report.csv"
+INPUT_FILE = "raw_ocr_output.csv"
 OUTPUT_FILE = "Final_Voter_List_Parsed.xlsx"
 # =================================================
 
@@ -89,7 +89,7 @@ def main():
         return
 
     # Check if 'Raw Extracted Text' column exists
-    if "Raw Extracted Text" not in df.columns:
+    if "Raw Text" not in df.columns:
         print("Error: Column 'Raw Extracted Text' not found in CSV!")
         return
 
@@ -98,7 +98,7 @@ def main():
     parsed_data = []
     
     for index, row in df.iterrows():
-        raw_text = row.get("Raw Extracted Text", "")
+        raw_text = row.get("Raw Text", "")
         
         # Apply Parsing
         parsed_fields = parse_bengali_row(raw_text)

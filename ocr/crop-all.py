@@ -4,8 +4,8 @@ import os
 import shutil
 
 # ================= CONFIGURATION =================
-PDF_PATH = "../files/150397_com_2833_male_without_photo_160_2025-11-24.pdf" 
-OUTPUT_BASE_DIR = "full_extraction_dump"
+PDF_PATH = "../files/150432_com_112_female_without_photo_7_2025-11-24.pdf" 
+OUTPUT_BASE_DIR = "150432_com_112_female_without_photo_7_2025-11-24"
 DPI = 400
 
 # 1. Box Dimensions
@@ -15,7 +15,7 @@ BOX_H = 442
 # 2. STANDARD PAGE COORDINATES (Page 4 onwards)
 # 6 Rows
 STD_COLS_X = [375, 1689, 3006]
-STD_ROWS_Y = [234, 684, 1134, 1584, 2034, 2484]
+STD_ROWS_Y = [180, 630, 1080, 1530, 1980, 2430]
 
 # 3. START PAGE COORDINATES (Page 3)
 # 5 Rows (Header Area skipped)

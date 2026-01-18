@@ -8,8 +8,8 @@ import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ================= CONFIGURATION =================
-CROPS_FOLDER = "full_extraction_dump"
-OUTPUT_FILE = "Final_Voter_List_EasyOCR.xlsx"
+CROPS_FOLDER = "150432_com_112_female_without_photo_7_2025-11-24"
+OUTPUT_FILE = "150432_com_112_female_without_photo_7_2025-11-24.xlsx"
 RAW_CSV_FILE = "raw_ocr_output.csv"
 USE_GPU = False  # Set True if you have an NVIDIA GPU
 # =================================================
@@ -80,10 +80,13 @@ def parse_bengali_row(text):
     if dob_match:
         data["DOB"] = to_bengali_digits(dob_match.group(1))
 
-    # 8. ADDRESS (Everything after 'ঠিকানা')
+    # 8. ADDRESS (Everything after 'ঠিকানা', but stop at 'চট্টগ্রাম')
     addr_match = re.search(r'ঠিকানা\s*[:;]?\s*(.*)', text, re.DOTALL)
     if addr_match:
         clean_addr = addr_match.group(1).replace("\n", " ").strip()
+        # Stop at 'চট্টগ্রাম' - include the word but nothing after it
+        if 'চট্টগ্রাম' in clean_addr:
+            clean_addr = clean_addr.split('চট্টগ্রাম')[0] + 'চট্টগ্রাম'
         data["Address"] = to_bengali_digits(clean_addr)
 
     return data
@@ -186,9 +189,11 @@ def main():
             except Exception as e:
                 print(f"❌ Worker Error: {e}")
 
-    # 4. Save RAW Data to CSV
+    # 4. Save RAW Data to CSV (sorted by Page and Box)
     print(f"\n💾 Saving Raw Text to {RAW_CSV_FILE}...")
     df_raw = pd.DataFrame(raw_data_list)
+    # Sort by Page Name and Box Name to maintain sequential order
+    df_raw = df_raw.sort_values(by=["Page Name", "Box Name"], ignore_index=True)
     df_raw.to_csv(RAW_CSV_FILE, index=False, encoding="utf-8-sig")
 
     # 5. Parse Data from CSV
@@ -216,6 +221,9 @@ def main():
             df_final[c] = ""
             
     df_final = df_final[cols] # Reorder
+    
+    # Sort by Page Name and Box Name to maintain sequential order
+    df_final = df_final.sort_values(by=["Page Name", "Box Name"], ignore_index=True)
 
     df_final.to_excel(OUTPUT_FILE, index=False)
     print(f"🎉 DONE! Saved to {OUTPUT_FILE}")

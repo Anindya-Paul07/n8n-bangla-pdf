@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 # ================= CONFIGURATION =================
-PDF_PATH = "../files/150397_com_2833_male_without_photo_160_2025-11-24.pdf"   # <--- RENAME THIS
+PDF_PATH = "../files/150430_com_144_female_without_photo_9_2025-11-24.pdf"   # <--- RENAME THIS
 PAGE_NO = 4                       # Page to test
 DPI = 400
 SHIFT_AMOUNT = 30                 # How many pixels to shift for testing
@@ -12,7 +12,7 @@ SHIFT_AMOUNT = 30                 # How many pixels to shift for testing
 # ORIGINAL COORDINATES
 BOX_W, BOX_H = 1296, 430
 STD_COLS = [375, 1689, 3006]
-STD_ROWS = [234, 684, 1134, 1584, 2034, 2484]
+STD_ROWS = [180, 630, 1080, 1530, 1980, 2430]
 # ==============================================
 
 def generate_grid_image(doc, x_shift, y_shift, label):
